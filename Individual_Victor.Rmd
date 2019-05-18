@@ -194,3 +194,42 @@ House with the red has the highest price and lowest in blue dots. Most of the hi
 
 <hr /> 
 
+### Build Base Model Using Linear Regression 
+
+First we partition the labelled data into train and test set. 
+
+```{r}
+f_partition<-function(df,test_proportion=0.2, seed=NULL){
+  
+  if(!is.null(seed)) set.seed(seed)
+  
+  train_index<-sample(nrow(df), floor(nrow(df)*(1-test_proportion)), replace = FALSE)
+  df_train<-df[train_index,]
+  df_test<-df[-train_index,]
+  
+  return(list(train=df_train, test=df_test))
+}
+
+whole_data <- f_partition(df = train_refined,
+                        test_proportion = 0.2,
+                        seed = 123)
+```
+
+We adopt Linear Regression as our base model. We apply the algorithm to our train dataset
+```{r}
+BaseModel = lm(price ~ ., whole_data$train )
+summary(BaseModel) 
+```
+
+Now we will make prediction using the trained Linear Regression model. This model will be tested on unseen data. We then be able to compare the prediction with the actual value, thus assessing the prediction capability of the model. 
+
+```{r}
+BasePred <-predict(BaseModel,whole_data$test)
+base_metric <- data.frame(cbind(actuals=whole_data$test$price, predicteds=BasePred))
+r2_base <- 1 - sum((base_metric$actuals-base_metric$predicteds)^2)/sum((base_metric$actuals-mean(base_metric$actuals))^2)
+r2_base
+```
+
+Our current model has the R Squared of 0.68. We will go ahead to perform feature engineering to improve the performance of the model. 
+
+
