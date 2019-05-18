@@ -276,4 +276,36 @@ train_refined <- train %>%select(-sqft_living, -sqft_above,-grade,
                                  -sqft_living15, -sqft_lot, -sqft_basement )
 ```
 
+### Feature Creation 
+
+```{r}
+# Create variable that show the ratio of bathroom per bedroom.
+train_refined$bath_bed <- train_refined$bathrooms/train_refined$bedrooms
+
+#Create a variable to show the age of the house. We assume that the house is sold in 2015. If the house has been renovated, the age will count from the year of renovation
+train_refined$year_old <- 2015 - train_refined$yr_built
+for  (row in 1:nrow(train_refined)){
+  if (train_refined$yr_renovated[row] > 0){
+  train_refined$year_old[row] <- train_refined$year_old[row] - (train_refined$yr_renovated[row] - train_refined$yr_built[row])
+}
+}
+
+```
+
+```{r}
+zipcode <- read.csv('zipcode.csv',stringsAsFactors = F)
+
+train_refined<-merge(x=train_refined,y=zipcode,by="zipcode",all.x=TRUE)
+
+for(unique_value in unique(train_refined$City)){
+  train_refined[paste("Neighborhood", unique_value, sep = ".")] <- ifelse(train_refined$City == unique_value, 1, 0)
+}
+
+#Drop the variable city and zipcode
+train_refined <- train_refined %>%select(-zipcode,-City)
+
+str(train_refined)
+```
+
+We now have 52 variables in total. 
 
