@@ -232,4 +232,48 @@ r2_base
 
 Our current model has the R Squared of 0.68. We will go ahead to perform feature engineering to improve the performance of the model. 
 
+#### Correlation Analysis
+
+```{r}
+corresult = cor(train)
+
+corrplot(corresult, type="upper")
+
+```
+
+##### Find attributes that are highly correlated (ideally > 0.5)
+```{r}
+highlyCorrelated <- findCorrelation(corresult, cutoff=0.5)
+colnames(train[,highlyCorrelated])
+```
+
+We could see from the correlation graph, sqft_living, sqft_living15, sqft_above, grade, and bathrooms are highly correlated. In other words, these variables are explaining the same variations of the data point. Thus we might have to remove and manipulated these variables to avoid multicollinearity. Now lets explore some variables that have high correlation with house price. These include: sqft_living,sqft_above, bedrooms, bathrooms, grade, and location.
+
+###  Feature Importance
+
+```{r}
+importance = varImp(BaseModel)
+varImportance <- data.frame(Variables = row.names(importance[1]), 
+                              Importance = round(importance$Overall,2))
+rankImportance <- varImportance %>%
+    mutate(Rank = paste0('#',dense_rank(desc(Importance))))
+
+ggplot(rankImportance, aes(x = reorder(Variables, Importance), 
+                             y = Importance)) +
+    geom_bar(stat='identity',colour="white", fill = "#5ab4ac") +
+    geom_text(aes(x = Variables, y = 1, label = Rank),
+              hjust=0, vjust=.5, size = 4, colour = 'black',
+              fontface = 'bold') +
+    labs(x = 'Variables', title = 'Relative Variable Importance') +
+    coord_flip() + 
+    theme_bw()
+
+```
+From the table above, we could see the relative importance of the variables. Location, grade, year_built and size of the house are among the most importance variables to explain house price. Other less important variables are sqft_lot, sqft_above, data related to renovation. Thus I will go ahead and drop those variables that are correlated and have low importance. 
+
+```{r}
+train_refined <- train %>%select(-sqft_living, -sqft_above,-grade, 
+                                 -sqft_living15, -sqft_lot, -sqft_basement )
+```
+
 
