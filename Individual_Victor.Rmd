@@ -20,6 +20,7 @@ library(randomForest)
 library(xgboost)
 library(data.table)
 library(leaflet)
+library(DMwR)
 ```
 
 
@@ -210,7 +211,7 @@ f_partition<-function(df,test_proportion=0.2, seed=NULL){
   return(list(train=df_train, test=df_test))
 }
 
-whole_data <- f_partition(df = train_refined,
+whole_data <- f_partition(df = train,
                         test_proportion = 0.2,
                         seed = 123)
 ```
@@ -272,8 +273,8 @@ ggplot(rankImportance, aes(x = reorder(Variables, Importance),
 From the table above, we could see the relative importance of the variables. Location, grade, year_built and size of the house are among the most importance variables to explain house price. Other less important variables are sqft_lot, sqft_above, data related to renovation. Thus I will go ahead and drop those variables that are correlated and have low importance. 
 
 ```{r}
-train_refined <- train %>%select(-sqft_living, -sqft_above,-grade, 
-                                 -sqft_living15, -sqft_lot, -sqft_basement )
+train_refined <- train %>%select(-sqft_lot15, -sqft_above, -sqft_living15, -sqft_lot, -sqft_basement,
+                                 floors, -zipcode)
 ```
 
 ### Feature Creation 
@@ -292,20 +293,115 @@ for  (row in 1:nrow(train_refined)){
 
 ```
 
+Since the house price varies across zipcode however stay constant within the zipcode, thus having a variable to identify the specific neighborhood might help. Also, zipcode is not a meaningful numeric variable by itself, I would like to transform it into categorical variables that the model can understand. I have attempted to add another dataset with specific neighborhood then merge with original by zip code. Then I one hot encode all the neighborhood. However, this for some reason drop the r2 level.
+It seems like removing zipcode does help improve the model. 
 ```{r}
-zipcode <- read.csv('zipcode.csv',stringsAsFactors = F)
-
-train_refined<-merge(x=train_refined,y=zipcode,by="zipcode",all.x=TRUE)
-
-for(unique_value in unique(train_refined$City)){
-  train_refined[paste("Neighborhood", unique_value, sep = ".")] <- ifelse(train_refined$City == unique_value, 1, 0)
-}
-
-#Drop the variable city and zipcode
-train_refined <- train_refined %>%select(-zipcode,-City)
-
-str(train_refined)
+train_refined <- train %>%select( -zipcode)
 ```
 
-We now have 52 variables in total. 
+### Outlier Treatment {.tabset .tabset-fade .tabset-pills}
+We perform outlier detection and treatment for all numeric variables
+
+#### Bedroom
+
+```{r}
+ggplot(data = data.frame(train_refined$bedrooms), aes(x = "", y = train_refined$bedrooms)) + geom_boxplot( fill="#e31a1c", alpha=0.5, outlier.colour = '#252525', outlier.size = 2) + ggtitle("Boxplot of Bedrooms") + theme_minimal() + theme(axis.title = element_blank())
+train_refined <- train_refined %>% filter(bedrooms < 30)
+```
+
+There is clearly one significant outlier with 33 bedrooms, we will remove this outlier and only keep data point that is less than 30 rooms.  
+
+#### Bathroom
+
+```{r}
+ggplot(data = data.frame(train_refined$bathrooms), aes(x = "", y = train_refined$bathrooms)) + geom_boxplot( fill="#fd8d3c", alpha=0.3, outlier.colour = '#252525', outlier.size = 2) + ggtitle("Boxplot of Bathrooms") + theme_minimal() + theme(axis.title = element_blank())
+```
+
+There is no significant outlier for Bathroom. 
+
+#### Square Feet Living
+
+```{r}
+ggplot(data = data.frame(train_refined$sqft_living), aes(x = "", y = train_refined$sqft_living)) + geom_boxplot( fill="#fed976", alpha=0.3, outlier.colour = 'black', outlier.size = 2) + ggtitle("Boxplot of Square Feet Living") + theme_minimal() + theme(axis.title = element_blank())
+
+train_refined <- train_refined %>% filter(sqft_living < 8000)
+```
+
+Most of the house in the train dataset are below 8000. We will go ahead and remove 8 houses above 8000 square meters.
+
+### Standardization & Correcting Skewness
+```{r}
+train_refined$sqft_living <- scale(train_refined$sqft_living)
+train_refined$bedrooms <- scale(train_refined$bedrooms)
+train_refined$bathrooms <- scale(train_refined$bathrooms)
+ggplot(data.frame(train_refined$bathrooms), aes(x = train_refined$bathrooms))  + 
+  geom_density(fill="#e34a33")
+
+```
+I tried to rescale the variable however there is so improvement made to the r2 score. Thus this step will not be taken. 
+
+### PCA
+
+### Defining Evaluation Metrics
+```{r}
+mae<-function(real, predicted){
+  return(mean(abs(real-predicted)))
+}
+mape<-function(real,predicted){
+  return(mean(abs((real-predicted)/real)))
+}
+rmse<-function(real,predicted){
+  return(sqrt(mean((real-predicted)^2)))
+}
+r2 <- function(real,predicted){
+  return(1-sum((real - predicted)^2)/sum((real - mean(real))^2))
+}
+```
+
+### Random Forest {.tabset .tabset-fade .tabset-pills}
+
+First partition the data into train and test sets
+```{r}
+final_data <- f_partition(df = train_refined,
+                        test_proportion = 0.2,
+                        seed = 123)
+```
+
+#### Ranger Model 
+```{r}
+library(ranger)
+#Define target variable
+formula<-as.formula(price~.)
+
+rf_1<-ranger(formula, final_data$train)
+test_rf1<-predict(rf_1, final_data$test)$predictions
+r2(real=final_data$test$price, predicted = test_rf1)
+```
+
+#### Another Random Forest Model
+```{r}
+Modelrf<-randomForest(formula=formula, data=final_data$train, importance = TRUE)
+RF_pred<-predict(Modelrf, newdata = final_data$test, type='response')
+rmse(real=final_data$test$price, predicted = RF_pred)
+r2(real=final_data$test$price, predicted = RF_pred)
+```
+
+
+#### Summary
+```{r}
+summary(Modelrf) 
+```
+
+#### Variable Importance
+```{r}
+varImpPlot(Modelrf,type=2)
+```
+
+
+#### Plotting Prediction
+```{r}
+ggplot(final_data$test,aes(x=price,y=pred))+geom_point(color="#5ab4ac")+geom_abline(color="#e34a33")
+```
+
+### XGBoost Model 
 
