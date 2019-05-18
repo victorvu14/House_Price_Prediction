@@ -53,3 +53,144 @@ sum(is.na(train))
 
 <hr /> 
 
+#### Drop the id and date columns
+
+Since we are not going to use date and id in the analysis, we will go ahead to drop this two columns 
+
+```{r}
+train <- train %>%select(-id,-date)
+```
+
+<hr /> 
+
+### Exploratory Data Analysis  {.tabset .tabset-fade .tabset-pills}
+
+Since the distribution of house price is right skewed, we applied log of house price to plot the distribution. The log transformation can be used to make highly skewed distributions less skewed.This can be valuable both for making patterns in the data more interpretable and for helping to meet the assumptions of inferential statistics.
+
+```{r}
+ggplot(train,aes(x = log10(price)))+ geom_histogram(fill="#e34a33",binwidth=0.10)
+```
+
+
+
+#### Price & Sqft_Living
+
+```{r}
+train %>% 
+ 
+  ggplot(aes(x=sqft_living,y=price))+
+  geom_point(color = "#5ab4ac")+
+  
+  stat_smooth(aes(x=sqft_living,y=price),method="lm", color="#e34a33")+
+  theme_bw()+
+  theme(axis.title = element_text(size=16),axis.text = element_text(size=14))+
+  xlab("Sqft Living")+
+  ylab("Price")
+```
+
+As we could see there is a positive linear relatition between house price and size of the house. This is sensible as larger house tends to have higher price. But this need to be combine with geolocation in order to have a better view of the picture. 
+
+#### Price & Sqft_Above
+
+Square feet above is the square footage of house apart from basement. This indicates that the house has more than one story. It makes sense that this variable is highly correlated with the Sqft Living, since in most cases, the size of the level above is similar to the basement. 
+
+```{r}
+train %>% 
+ 
+  ggplot(aes(x=sqft_above,y=price))+
+  geom_point(color = "#5ab4ac")+
+  
+  stat_smooth(aes(x=sqft_above,y=price),method="lm", color="#e34a33")+
+  theme_bw()+
+  theme(axis.title = element_text(size=16),axis.text = element_text(size=14))+
+  xlab("Sqft Above")+
+  ylab("Price")
+```
+
+As we could see, the distribution of this variable is very similar to sqft_living, thus we will go ahead a drop this variable. A more interesting variable to be considered in this case is floor, which indicates the number of floor in the house. 
+
+#### Price & Floor 
+
+Floors in the house is mezzanine, that's the reason it has values of 2.5 , 3.5. 
+
+```{r}
+ggplot(train,aes(factor(floors),log10(price),fill=factor(floors)))+ geom_boxplot(alpha=0.5)+ theme_bw() + 
+  labs(x = "Floors", y = "Log Price")+ 
+  theme(legend.position="none")
+```
+
+Median house price increases as bedroom increases up until 2.5. But then it start to decrease. Thus this might not be very indicative.
+
+#### Price & Bedroom 
+
+```{r}
+mycolors = c(brewer.pal(name="Dark2", n = 8), brewer.pal(name="Paired", n = 6))
+
+train %>% filter(bedrooms<30)%>%
+ggplot(aes(x=bedrooms,y=price,col=bedrooms))+
+geom_point(alpha=0.5,size=2)+
+geom_smooth(method="lm",se=F,col="#e34a33")+
+labs("title=Bedrooms vs Price")+ scale_color_gradientn(colors=mycolors)+theme(legend.position="none")
+
+```
+
+As we can see, the majority of houses in the data set has 3 to 6 bed rooms. While there appear to be a positive trend, there is no clear correlation between the number of bedroom and house price. 
+
+#### Price & Bathroom
+
+```{r}
+mycolors = c(brewer.pal(name="Dark2", n = 8), brewer.pal(name="Paired", n = 6))
+
+train %>% 
+ggplot(aes(x=bathrooms,y=price, col=bathrooms))+
+geom_point(alpha=0.5,size=2)+
+geom_smooth(method="lm",se=F,col="#e34a33")+
+labs("title=Bathrooms vs Price")+theme(legend.position="none")
+```
+
+There is a clearer positive correlation between the number of bathroom and house price. Highest house price tend to have higher number of bathroom. This might be because house with more bathrooms mean there are more master bedrooms, thus increase the convenience and value of the house. It might be interesting to calculate the ratio of bathroom per bedroom for each house, this will be consider in the feature engineering part.
+
+####Price & Grade 
+
+This is the overall grade given to the housing unit, based on King County grading system. 
+
+```{r}
+ggplot(train,aes(grade,log10(price),fill=factor(grade)))+ geom_boxplot(alpha=0.5)+ theme_bw() + 
+  labs(x = "Grade", y = "Log Price")+ 
+  theme(legend.position="none")
+```
+
+As we could observe from the graph, the median house price increases as the grade increases. Higher quality house must have had higher price. 
+
+#### Price & Location 
+
+```{r}
+df_map <- train
+
+df_map$PriceBin<-cut(df_map$price, c(0,250e3,500e3,750e3,1e6,2e6,999e6))
+
+center_lon = median(df_map$long,na.rm = TRUE)
+center_lat = median(df_map$lat,na.rm = TRUE)
+
+factpal <- colorFactor(c("#2166ac","#67a9cf","#ffffbf","#fee08b","#ef8a62","#b2182b"), 
+                       df_map$PriceBin)
+
+leaflet(df_map) %>% addProviderTiles("Esri.NatGeoWorldMap") %>%
+  addCircles(lng = ~long, lat = ~lat, 
+             color = ~factpal(PriceBin))  %>%
+  # controls
+  setView(lng=center_lon, lat=center_lat,zoom = 12) %>%
+  
+  addLegend("bottomright", pal = factpal, values = ~PriceBin,
+            title = "House Price Distribution",
+            opacity = 1)
+
+
+```
+
+The map above shows the distribution of the house and the price tag in different bin group. 
+House with the red has the highest price and lowest in blue dots. Most of the high price houses locate in Seattle center and in Bellevue or Medina neighborhoods. Houses with lower price are locate toward the South or a little bit further away from the center. This illustration shows that location can be a valuable variable to explain price. 
+
+
+<hr /> 
+
