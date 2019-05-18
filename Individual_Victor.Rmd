@@ -295,6 +295,7 @@ for  (row in 1:nrow(train_refined)){
 
 Since the house price varies across zipcode however stay constant within the zipcode, thus having a variable to identify the specific neighborhood might help. Also, zipcode is not a meaningful numeric variable by itself, I would like to transform it into categorical variables that the model can understand. I have attempted to add another dataset with specific neighborhood then merge with original by zip code. Then I one hot encode all the neighborhood. However, this for some reason drop the r2 level.
 It seems like removing zipcode does help improve the model. 
+
 ```{r}
 train_refined <- train %>%select( -zipcode)
 ```
@@ -331,11 +332,10 @@ Most of the house in the train dataset are below 8000. We will go ahead and remo
 
 ### Standardization & Correcting Skewness
 ```{r}
-train_refined$sqft_living <- scale(train_refined$sqft_living)
-train_refined$bedrooms <- scale(train_refined$bedrooms)
-train_refined$bathrooms <- scale(train_refined$bathrooms)
-ggplot(data.frame(train_refined$bathrooms), aes(x = train_refined$bathrooms))  + 
-  geom_density(fill="#e34a33")
+#train_refined$sqft_living <- scale(train_refined$sqft_living)
+#train_refined$bedrooms <- scale(train_refined$bedrooms)
+#train_refined$bathrooms <- scale(train_refined$bathrooms)
+#ggplot(data.frame(train_refined$bathrooms), aes(x = train_refined$bathrooms))  + geom_density(fill="#e34a33")
 
 ```
 I tried to rescale the variable however there is so improvement made to the r2 score. Thus this step will not be taken. 
@@ -381,9 +381,9 @@ r2(real=final_data$test$price, predicted = test_rf1)
 #### Another Random Forest Model
 ```{r}
 Modelrf<-randomForest(formula=formula, data=final_data$train, importance = TRUE)
-RF_pred<-predict(Modelrf, newdata = final_data$test, type='response')
+final_data$test$pred<-predict(Modelrf, newdata = final_data$test, type='response')
 rmse(real=final_data$test$price, predicted = RF_pred)
-r2(real=final_data$test$price, predicted = RF_pred)
+r2(real=final_data$test$price, predicted = final_data$test$pred)
 ```
 
 
@@ -397,11 +397,21 @@ summary(Modelrf)
 varImpPlot(Modelrf,type=2)
 ```
 
-
 #### Plotting Prediction
 ```{r}
 ggplot(final_data$test,aes(x=price,y=pred))+geom_point(color="#5ab4ac")+geom_abline(color="#e34a33")
 ```
 
 ### XGBoost Model 
+```{r}
+xgb_0<-xgboost(booster='gbtree',
+               data=as.matrix(final_data$train[, -1]),
+               label=final_data$train$price,
+               nrounds = 50,
+               objective='reg:linear')
+print(xgb_0)
 
+test_xgb<-predict(xgb_0, newdata = as.matrix(final_data$test[, -1]), type='response')
+
+r2(real=final_data$test$price, predicted = test_xgb)
+```
