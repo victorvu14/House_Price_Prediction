@@ -1,0 +1,55 @@
+---
+title: "Individual_Assignment"
+author: "Victor Vu"
+date: "34/05/2019"
+output: html_document
+---
+
+##Downloading Packages 
+
+```{r setup, include=FALSE}
+library(knitr)
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(corrplot)
+library(RColorBrewer)
+library(caret)
+library(gridExtra)
+library(randomForest)
+library(xgboost)
+library(data.table)
+library(leaflet)
+```
+
+
+##Loading Data 
+```{r}
+train <- read.csv("house_price_train.csv", stringsAsFactors = F)
+test <- read.csv("house_price_test.csv", stringsAsFactors = F)
+```
+
+#### Data Understanding {.tabset .tabset-fade .tabset-pills}
+
+##### Data Summary
+```{r}
+summary(train %>%select(-id,-date, -zipcode, -lat, -long))
+```
+Looking at the data summary, the average house profile has a price tag of 540,000 with 3 bedrooms, 2 bathrooms and a living area of 2000 square feet. The hous is built in 1971 and is in average condition. However, there are definitely outliers that lie way beyond the average profile with the price tag of $7,700,000, having 33 bedrooms, or having a living area of more than 13,000 square feets. 
+
+##### Data Structure
+
+```{r}
+str(train)
+```
+There 17277 observations in the training dataset with 21 variables. Apart from date, all variables are already in numeric form that are ready to be modeled. A thing to note here is that bathrooms and floors are in numeric form. 
+
+
+##### Check for NAs
+The dataset is clean with no NAs 
+```{r}
+sum(is.na(train))
+```
+
+<hr /> 
+
