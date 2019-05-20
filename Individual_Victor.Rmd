@@ -17,6 +17,7 @@ library(RColorBrewer)
 library(caret)
 library(gridExtra)
 library(randomForest)
+library(ranger)
 library(xgboost)
 library(data.table)
 library(leaflet)
@@ -340,7 +341,41 @@ Most of the house in the train dataset are below 8000. We will go ahead and remo
 ```
 I tried to rescale the variable however there is so improvement made to the r2 score. Thus this step will not be taken. 
 
-### PCA
+### Principal Component Analysis {.tabset .tabset-fade .tabset-pills}
+
+Our dataset currently has 17 independent variables, which is partly correlated. Thus we can reduce the collinearity by applying principal component analysis. Below layout my experiment with PCA.
+
+#### Rotations
+```{r}
+pca <- prcomp(train_refined%>%select(-price), scale = TRUE, center=TRUE)
+pca_var <- pca$sdev^2
+pca_var_round <- round(pca_var/sum(pca_var)*100, 1)
+print(pca$rotation[,1:6])
+```
+#### Screenplot
+```{r}
+cumsum(pca_var_round)
+barplot(pca_var_round, main = " Screen Plot", xlab ="Principal Component", ylab = "Percent Variation")
+```
+
+Fron the graph above, we could see that 
+
+#### L Plot
+```{r}
+plot(pca, type = "l")
+```
+
+As we can see the tenth first component explains almost 90% of the variation. So we will go ahead and experiment build a basic linear model with 10 components. 
+
+#### Basic Linear Model
+```{r}
+new_vars<-pca$x  # we first take all of them
+new_vars_1<-data.table(price = train_refined$price,new_vars)
+lm1<-lm(price~., data=new_vars_1[, c(1:11)])
+summary(lm1)
+```
+
+As I applied the newly created components to the random forest model, I got worse results. Thus I will not proceed with the components created. Now I will go ahead with experimenting different algorithms and parameter tuning. 
 
 ### Defining Evaluation Metrics
 ```{r}
@@ -369,7 +404,6 @@ final_data <- f_partition(df = train_refined,
 
 #### Ranger Model 
 ```{r}
-library(ranger)
 #Define target variable
 formula<-as.formula(price~.)
 
@@ -380,16 +414,25 @@ r2(real=final_data$test$price, predicted = test_rf1)
 
 #### Another Random Forest Model
 ```{r}
-Modelrf<-randomForest(formula=formula, data=final_data$train, importance = TRUE)
-final_data$test$pred<-predict(Modelrf, newdata = final_data$test, type='response')
-rmse(real=final_data$test$price, predicted = RF_pred)
-r2(real=final_data$test$price, predicted = final_data$test$pred)
+set.seed(123)
+rangerFit <- train(
+  formula,
+  data = final_data$train,
+  method = "ranger", num.trees=1000,
+  preProc = NULL,
+  trControl = trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions=TRUE),
+  metric = "Rsquared"
+)
+
 ```
 
 
 #### Summary
 ```{r}
-summary(Modelrf) 
+summary(rf_1) 
 ```
 
 #### Variable Importance
@@ -415,3 +458,5 @@ test_xgb<-predict(xgb_0, newdata = as.matrix(final_data$test[, -1]), type='respo
 
 r2(real=final_data$test$price, predicted = test_xgb)
 ```
+
+### Model Tuning 
