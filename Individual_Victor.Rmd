@@ -61,19 +61,39 @@ Since we are not going to use date and id in the analysis, we will go ahead to d
 
 ```{r}
 train <- train %>%select(-id,-date)
+test<- test %>%select(-id,-date)
 ```
 
 <hr /> 
 
 ### Exploratory Data Analysis  {.tabset .tabset-fade .tabset-pills}
 
-Since the distribution of house price is right skewed, we applied log of house price to plot the distribution. The log transformation can be used to make highly skewed distributions less skewed.This can be valuable both for making patterns in the data more interpretable and for helping to meet the assumptions of inferential statistics.
+#### House Price 
 
 ```{r}
-ggplot(train,aes(x = log10(price)))+ geom_histogram(fill="#e34a33",binwidth=0.10)
+ggplot(train, aes(x = price)) +
+geom_histogram(col = "black", fill = '#e34a33', binwidth = 200000, center = 100000) +
+theme_linedraw() + 
+theme(plot.title = element_text(hjust = 0, face = 'bold',color = 'black'), #title settings
+      plot.subtitle = element_text(face = "italic")) + #subtitle settings
+labs(x = 'Price (USD)', y = 'Frequency', title = "House Sales in King County, USA",
+     subtitle = "Price distribution") + #name subtitle
+scale_y_continuous(labels = scales::comma, limits = c(0,8000), breaks = c(0,2000,4000,6000,8000)) + 
+scale_x_continuous(labels = scales::comma) #prevent scientific number in x-axis
 ```
 
+The distribution of house price is right skewed with mean larger than median. Most of the houses are from the 200,000 to 600,000 range. 
 
+#### Correlation Analysis
+
+```{r}
+corresult = cor(train)
+
+corrplot(corresult, type="upper")
+
+```
+
+We could see from the correlation graph, sqft_living, sqft_living15, sqft_above, grade, and bathrooms are highly correlated. In other words, these variables are explaining the same variations of the data point. Thus we might have to remove and manipulated these variables to avoid multicollinearity. Now lets explore some variables that have high correlation with house price. These include: sqft_living,sqft_above, bedrooms, bathrooms, grade, and location.
 
 #### Price & Sqft_Living
 
@@ -87,7 +107,7 @@ train %>%
   theme_bw()+
   theme(axis.title = element_text(size=16),axis.text = element_text(size=14))+
   xlab("Sqft Living")+
-  ylab("Price")
+  ylab("Price")  + scale_x_continuous(labels = scales::comma, breaks = c(0,2000,4000,6000,8000,10000,12000)) +  scale_y_continuous(labels = scales::comma)
 ```
 
 As we could see there is a positive linear relatition between house price and size of the house. This is sensible as larger house tends to have higher price. But this need to be combine with geolocation in order to have a better view of the picture. 
@@ -106,22 +126,11 @@ train %>%
   theme_bw()+
   theme(axis.title = element_text(size=16),axis.text = element_text(size=14))+
   xlab("Sqft Above")+
-  ylab("Price")
+  ylab("Price") + 
+  ylab("Price")  + scale_x_continuous(labels = scales::comma, breaks = c(0,2000,4000,6000,8000,10000,12000)) +  scale_y_continuous(labels = scales::comma)
 ```
 
 As we could see, the distribution of this variable is very similar to sqft_living, thus we will go ahead a drop this variable. A more interesting variable to be considered in this case is floor, which indicates the number of floor in the house. 
-
-#### Price & Floor 
-
-Floors in the house is mezzanine, that's the reason it has values of 2.5 , 3.5. 
-
-```{r}
-ggplot(train,aes(factor(floors),log10(price),fill=factor(floors)))+ geom_boxplot(alpha=0.5)+ theme_bw() + 
-  labs(x = "Floors", y = "Log Price")+ 
-  theme(legend.position="none")
-```
-
-Median house price increases as bedroom increases up until 2.5. But then it start to decrease. Thus this might not be very indicative.
 
 #### Price & Bedroom 
 
@@ -132,7 +141,7 @@ train %>% filter(bedrooms<30)%>%
 ggplot(aes(x=bedrooms,y=price,col=bedrooms))+
 geom_point(alpha=0.5,size=2)+
 geom_smooth(method="lm",se=F,col="#e34a33")+
-labs("title=Bedrooms vs Price")+ scale_color_gradientn(colors=mycolors)+theme(legend.position="none")
+labs("title=Bedrooms vs Price")+ scale_color_gradientn(colors=mycolors)+theme(legend.position="none") +  scale_y_continuous(labels = scales::comma)
 
 ```
 
@@ -147,7 +156,7 @@ train %>%
 ggplot(aes(x=bathrooms,y=price, col=bathrooms))+
 geom_point(alpha=0.5,size=2)+
 geom_smooth(method="lm",se=F,col="#e34a33")+
-labs("title=Bathrooms vs Price")+theme(legend.position="none")
+labs("title=Bathrooms vs Price")+theme(legend.position="none") + scale_y_continuous(labels = scales::comma)
 ```
 
 There is a clearer positive correlation between the number of bathroom and house price. Highest house price tend to have higher number of bathroom. This might be because house with more bathrooms mean there are more master bedrooms, thus increase the convenience and value of the house. It might be interesting to calculate the ratio of bathroom per bedroom for each house, this will be consider in the feature engineering part.
@@ -227,29 +236,15 @@ Now we will make prediction using the trained Linear Regression model. This mode
 
 ```{r}
 BasePred <-predict(BaseModel,whole_data$test)
-base_metric <- data.frame(cbind(actuals=whole_data$test$price, predicteds=BasePred))
-r2_base <- 1 - sum((base_metric$actuals-base_metric$predicteds)^2)/sum((base_metric$actuals-mean(base_metric$actuals))^2)
-r2_base
+
+mape<-function(real,predicted){
+  return(mean(abs((real-predicted)/real)))
+}
+mape(whole_data$test$price,BasePred)
 ```
 
 Our current model has the R Squared of 0.68. We will go ahead to perform feature engineering to improve the performance of the model. 
 
-#### Correlation Analysis
-
-```{r}
-corresult = cor(train)
-
-corrplot(corresult, type="upper")
-
-```
-
-##### Find attributes that are highly correlated (ideally > 0.5)
-```{r}
-highlyCorrelated <- findCorrelation(corresult, cutoff=0.5)
-colnames(train[,highlyCorrelated])
-```
-
-We could see from the correlation graph, sqft_living, sqft_living15, sqft_above, grade, and bathrooms are highly correlated. In other words, these variables are explaining the same variations of the data point. Thus we might have to remove and manipulated these variables to avoid multicollinearity. Now lets explore some variables that have high correlation with house price. These include: sqft_living,sqft_above, bedrooms, bathrooms, grade, and location.
 
 ###  Feature Importance
 
@@ -271,11 +266,10 @@ ggplot(rankImportance, aes(x = reorder(Variables, Importance),
     theme_bw()
 
 ```
-From the table above, we could see the relative importance of the variables. Location, grade, year_built and size of the house are among the most importance variables to explain house price. Other less important variables are sqft_lot, sqft_above, data related to renovation. Thus I will go ahead and drop those variables that are correlated and have low importance. 
+From the table above, we could see the relative importance of the variables. Location, grade, year_built and size of the house are among the most importance variables to explain house price. Other less important variables are sqft_lot15, floors, sqft_above, sqft_living15. However since we will adopt tree base models and these model are not sensitive to collinearity, I will not drop the correlated variables. 
 
 ```{r}
-train_refined <- train %>%select(-sqft_lot15, -sqft_above, -sqft_living15, -sqft_lot, -sqft_basement,
-                                 floors, -zipcode)
+train_refined <- train 
 ```
 
 ### Feature Creation 
@@ -291,14 +285,13 @@ for  (row in 1:nrow(train_refined)){
   train_refined$year_old[row] <- train_refined$year_old[row] - (train_refined$yr_renovated[row] - train_refined$yr_built[row])
 }
 }
-
 ```
 
 Since the house price varies across zipcode however stay constant within the zipcode, thus having a variable to identify the specific neighborhood might help. Also, zipcode is not a meaningful numeric variable by itself, I would like to transform it into categorical variables that the model can understand. I have attempted to add another dataset with specific neighborhood then merge with original by zip code. Then I one hot encode all the neighborhood. However, this for some reason drop the r2 level.
 It seems like removing zipcode does help improve the model. 
 
 ```{r}
-train_refined <- train %>%select( -zipcode)
+train_refined$zipcode <- NULL
 ```
 
 ### Outlier Treatment {.tabset .tabset-fade .tabset-pills}
@@ -358,14 +351,12 @@ cumsum(pca_var_round)
 barplot(pca_var_round, main = " Screen Plot", xlab ="Principal Component", ylab = "Percent Variation")
 ```
 
-Fron the graph above, we could see that 
-
 #### L Plot
 ```{r}
 plot(pca, type = "l")
 ```
 
-As we can see the tenth first component explains almost 90% of the variation. So we will go ahead and experiment build a basic linear model with 10 components. 
+As we can see the tenth first component explains almost 96% of the variation. So we will go ahead and experiment build a basic linear model with 10 components. 
 
 #### Basic Linear Model
 ```{r}
@@ -377,24 +368,8 @@ summary(lm1)
 
 As I applied the newly created components to the random forest model, I got worse results. Thus I will not proceed with the components created. Now I will go ahead with experimenting different algorithms and parameter tuning. 
 
-### Defining Evaluation Metrics
-```{r}
-mae<-function(real, predicted){
-  return(mean(abs(real-predicted)))
-}
-mape<-function(real,predicted){
-  return(mean(abs((real-predicted)/real)))
-}
-rmse<-function(real,predicted){
-  return(sqrt(mean((real-predicted)^2)))
-}
-r2 <- function(real,predicted){
-  return(1-sum((real - predicted)^2)/sum((real - mean(real))^2))
-}
-```
 
-### Random Forest {.tabset .tabset-fade .tabset-pills}
-
+## Building Final Model 
 First partition the data into train and test sets
 ```{r}
 final_data <- f_partition(df = train_refined,
@@ -402,61 +377,141 @@ final_data <- f_partition(df = train_refined,
                         seed = 123)
 ```
 
-#### Ranger Model 
-```{r}
+### Random Forest {.tabset .tabset-fade .tabset-pills}
+
+#### Ranger Model with Tuning
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 #Define target variable
 formula<-as.formula(price~.)
 
-rf_1<-ranger(formula, final_data$train)
-test_rf1<-predict(rf_1, final_data$test)$predictions
-r2(real=final_data$test$price, predicted = test_rf1)
-```
+#Define tuneGrid
+tuneGrid=data.table(expand.grid(mtry=c(5,10),
+                                splitrule='variance',
+                                min.node.size=c(2,5,10)))
 
-#### Another Random Forest Model
-```{r}
-set.seed(123)
-rangerFit <- train(
-  formula,
-  data = final_data$train,
-  method = "ranger", num.trees=1000,
-  preProc = NULL,
-  trControl = trainControl(
-  method = "cv",
-  number = 10,
-  savePredictions=TRUE),
-  metric = "Rsquared"
+fit <- train(
+    formula
+    ,data = final_data$train
+    ,method = "ranger"
+    ,trControl = trainControl(method="cv", number = 5, search ="grid", allowParallel = TRUE, verbose = TRUE)
+    ,tuneGrid=tuneGrid
+    ,importance = 'impurity'
 )
 
+rf_1<-ranger(formula, final_data$train, num.trees=1000,
+                   mtry=fit$bestTune$mtry,
+                   min.node.size=fit$bestTune$min.node.size)
+test_rf1<-predict(rf_1, final_data$test)$predictions
+mape(real=final_data$test$price, predicted = test_rf1)
+
 ```
 
-
-#### Summary
-```{r}
-summary(rf_1) 
-```
+The current MAPE is 0.13. This is a big improvement from the base model. This could be because the random forest pick up better all the non linearity pattern in the data. Also, dropping of outliers and feature creations show added value here. 
 
 #### Variable Importance
 ```{r}
-varImpPlot(Modelrf,type=2)
+plot(varImp(fit))
+```
+
+It seems like the yr_renovated, floors, bedrooms, and condition have very low importance in the model. 
+
+#### Plotting Prediction
+```{r}
+df_pred<-data.table(id=1:length(test_rf1),
+                    real=final_data$test$price,
+                    test_rf1)
+ggplot(df_pred,aes(x=test_rf1,y=real))+geom_point(color="#5ab4ac")+geom_abline(color="#e34a33") +scale_x_continuous(labels = scales::comma) +  scale_y_continuous(labels = scales::comma)
+```
+
+### XGBoost Model {.tabset .tabset-fade .tabset-pills}
+
+#### Setting Parameters Level & Cross Validate
+```{r}
+#Putting dataset in matrix format
+dtrain <- xgb.DMatrix(data = as.matrix(final_data$train[,-1]),label = final_data$train$price)
+dtest <- xgb.DMatrix(data = as.matrix(final_data$test[,-1]),label = final_data$test$price)
+
+#Defining parameters
+params <- list(booster = "gbtree", objective = "reg:linear", eta=0.3, gamma=0, max_depth=6, min_child_weight=1, subsample=1, colsample_bytree=1)
+
+#Cross validate by 5 folds 
+xgbcv <- xgb.cv( params = params, data=dtrain, nrounds = 500, nfold = 5, showsd = T, stratified = T, print_every_n = 50, early_stopping_rounds = 20, maximize = F)
+
+#Find the best iteration
+xgbcv$best_iteration
+```
+
+#### RSquared
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
+
+xgb1 <- xgb.train (params = params, data = dtrain, nrounds = xgbcv$best_iteration, watchlist = list(val=dtest,train=dtrain), print.every.n = 10, early.stop.round = 10, maximize = F , eval_metric = "rmse")
+xgbpred <- predict (xgb1,dtest)
+mape(real=final_data$test$price, predicted = xgbpred)
+```
+#### Variable Importance 
+
+```{r}
+xgb.plot.importance(xgb.importance(model = xgb1))
 ```
 
 #### Plotting Prediction
 ```{r}
-ggplot(final_data$test,aes(x=price,y=pred))+geom_point(color="#5ab4ac")+geom_abline(color="#e34a33")
+xgb_pred<-data.table(id=1:length(test_xgb),
+                    real=final_data$test$price,
+                    test_xgb)
+ggplot(xgb_pred,aes(x=test_xgb,y=real))+geom_point(color="#5ab4ac")+geom_abline(color="#e34a33") +  scale_x_continuous(labels = scales::comma) +  scale_y_continuous(labels = scales::comma)
 ```
 
-### XGBoost Model 
+### Tuning XGBoost Model
 ```{r}
-xgb_0<-xgboost(booster='gbtree',
-               data=as.matrix(final_data$train[, -1]),
-               label=final_data$train$price,
-               nrounds = 50,
-               objective='reg:linear')
-print(xgb_0)
 
-test_xgb<-predict(xgb_0, newdata = as.matrix(final_data$test[, -1]), type='response')
+library(mlr)
 
-r2(real=final_data$test$price, predicted = test_xgb)
+lrn <- makeLearner("regr.xgboost")
+
+#set parameter space
+params <- makeParamSet(
+  makeIntegerParam("nrounds",lower=10,upper=20),
+  makeIntegerParam("max_depth",lower=1,upper=5),
+  makeNumericParam("lambda",lower=0.55,upper=0.60),
+  makeNumericParam("eta", lower = 0.001, upper = 0.5),
+  makeNumericParam("subsample", lower = 0.10, upper = 0.80),
+  makeNumericParam("min_child_weight",lower=1,upper=5),
+  makeNumericParam("colsample_bytree",lower = 0.2,upper = 0.8)
+)
+#set resampling strategy
+rdesc <- makeResampleDesc("CV",iters=5L)
+
+#Search startegy
+ctrl <- makeTuneControlRandom(maxit = 10L)
+
+#Set parallel backend
+library(parallel)
+library(parallelMap) 
+parallelStartSocket(cpus = detectCores())
+
+traintask <- makeRegrTask(data = final_data$train, target = "price")
+testTask <- makeRegrTask(data = final_data$test, target = "price")
+
+#Define tuning functions
+mytune <- tuneParams(learner = lrn, task = traintask, resampling = rdesc, par.set = params, control = ctrl,show.info = FALSE)
+
+mytune
+```
+#### Apply optimal parameters to model
+```{r}
+xgb_pars <- setHyperPars(learner = lrn,
+                        par.vals = mytune$x)
+
+xgb_tuned <- train(learner = lrn,task = traintask)
 ```
 
-### Model Tuning 
+#### Apply Model on Test set
+```{r}
+xgbtuned_pred <- predict(xgb_tuned, testTask)
+mape(real=xgbtuned_pred$data$truth, predicted = xgbtuned_pred$data$response)
+```
+
+The result of the tuned XGBoost model is slightly less than the tuned Random Forrest. Thus we will use the tuned XGBoost to build our final model. 
+
+
