@@ -22,6 +22,9 @@ library(xgboost)
 library(data.table)
 library(leaflet)
 library(DMwR)
+library(mlr)
+library(parallel)
+library(parallelMap) 
 ```
 
 
@@ -243,7 +246,7 @@ mape<-function(real,predicted){
 mape(whole_data$test$price,BasePred)
 ```
 
-Our current model has the R Squared of 0.68. We will go ahead to perform feature engineering to improve the performance of the model. 
+Our current model has the MAPE value of of 0.257. We will go ahead to perform feature engineering to improve the performance of the model. 
 
 
 ###  Feature Importance
@@ -277,12 +280,20 @@ train_refined <- train
 ```{r}
 # Create variable that show the ratio of bathroom per bedroom.
 train_refined$bath_bed <- train_refined$bathrooms/train_refined$bedrooms
+test$bath_bed <- test$bathrooms/test$bedrooms
 
 #Create a variable to show the age of the house. We assume that the house is sold in 2015. If the house has been renovated, the age will count from the year of renovation
 train_refined$year_old <- 2015 - train_refined$yr_built
 for  (row in 1:nrow(train_refined)){
   if (train_refined$yr_renovated[row] > 0){
   train_refined$year_old[row] <- train_refined$year_old[row] - (train_refined$yr_renovated[row] - train_refined$yr_built[row])
+}
+}
+
+test$year_old <- 2015 - test$yr_built
+for  (row in 1:nrow(test)){
+  if (test$yr_renovated[row] > 0){
+  test$year_old[row] <- test$year_old[row] - (test$yr_renovated[row] - test$yr_built[row])
 }
 }
 ```
@@ -292,6 +303,7 @@ It seems like removing zipcode does help improve the model.
 
 ```{r}
 train_refined$zipcode <- NULL
+test$zipcode <- NULL
 ```
 
 ### Outlier Treatment {.tabset .tabset-fade .tabset-pills}
@@ -325,22 +337,69 @@ train_refined <- train_refined %>% filter(sqft_living < 8000)
 Most of the house in the train dataset are below 8000. We will go ahead and remove 8 houses above 8000 square meters.
 
 ### Standardization & Correcting Skewness
+
+We now need to detect skewness in the Target value. Let's see what is the effect of skewness on a variable, and plot it using ggplot. The way of getting rid of the skewness is to use the `log` (or the `log1p`) of the values of that feature, to flatten it. To reduce right skewness, take roots or logarithms or reciprocals (x to 1/x). This is the commonest problem in practice. To reduce left skewness, take squares or cubes or higher powers.
+
 ```{r}
-#train_refined$sqft_living <- scale(train_refined$sqft_living)
-#train_refined$bedrooms <- scale(train_refined$bedrooms)
-#train_refined$bathrooms <- scale(train_refined$bathrooms)
-#ggplot(data.frame(train_refined$bathrooms), aes(x = train_refined$bathrooms))  + geom_density(fill="#e34a33")
+df <- rbind(data.frame(version="price",x=train_refined$price),
+            data.frame(version="log(price+1)",x=log(train_refined$price + 1)))
+
+ggplot(data=df) +
+  facet_wrap(~version,ncol=2,scales="free_x") +
+  geom_histogram(aes(x=x), bins = 50)
+```
+
+We therefore transform the target value applying log
+```{r}
+# Log transform the target for official scoring
+dataset <- train_refined
+dataset$price <- log1p(dataset$price)
+```
+
+The same "skewness" observed in the target variable also affects other variables. To facilitate the application of the regression model we are going to also eliminate this skewness. For numeric feature with excessive skewness, perform log transformation
+
+I will set up my threshold for the skewness in 0.75. I place that value in that variable to adjust its value in a single place, in case I have to perform multiple tests.
+
+```{r}
+skewness_threshold = 0.75
+```
+
+Now, let's compute the skewness of each feature that is not 'factor' nor 'character'. So, I'm only interested in continuous values. One possible way of doing it is the following: First, lets determine what is the 'class' or data type of each of my features.
+
+```{r}
+column_types <- sapply(names(dataset), function(x) {
+    class(dataset[[x]])
+  }
+)
+numeric_columns <- names(column_types[column_types != "factor"])
+```
+
+Now we apply fix skewness to all numeric 
+```{r}
+# skew of each variable
+skew <- sapply(numeric_columns, function(x) { 
+    e1071::skewness(dataset[[x]], na.rm = T)
+  }
+)
+
+# Since there are negative values in the longtitude, we will add the value to the minimum of the longtitude
+dataset$long <- dataset$long - min(dataset$long)
+# transform all variables above a threshold skewness.
+skew <- skew[abs(skew) > skewness_threshold]
+for(x in names(skew)) {
+  dataset[[x]] <- log(dataset[[x]] + 1)
+}
 
 ```
-I tried to rescale the variable however there is so improvement made to the r2 score. Thus this step will not be taken. 
+
 
 ### Principal Component Analysis {.tabset .tabset-fade .tabset-pills}
 
-Our dataset currently has 17 independent variables, which is partly correlated. Thus we can reduce the collinearity by applying principal component analysis. Below layout my experiment with PCA.
+Our dataset currently has 19 independent variables, which is partly correlated. Thus we can reduce the collinearity by applying principal component analysis. Below layout my experiment with PCA.
 
 #### Rotations
 ```{r}
-pca <- prcomp(train_refined%>%select(-price), scale = TRUE, center=TRUE)
+pca <- prcomp(dataset%>%select(-price), scale = TRUE, center=TRUE)
 pca_var <- pca$sdev^2
 pca_var_round <- round(pca_var/sum(pca_var)*100, 1)
 print(pca$rotation[,1:6])
@@ -356,7 +415,7 @@ barplot(pca_var_round, main = " Screen Plot", xlab ="Principal Component", ylab 
 plot(pca, type = "l")
 ```
 
-As we can see the tenth first component explains almost 96% of the variation. So we will go ahead and experiment build a basic linear model with 10 components. 
+As we can see the tenth first component explains almost 91% of the variation. So we will go ahead and experiment build a basic linear model with 10 components. 
 
 #### Basic Linear Model
 ```{r}
@@ -372,7 +431,7 @@ As I applied the newly created components to the random forest model, I got wors
 ## Building Final Model 
 First partition the data into train and test sets
 ```{r}
-final_data <- f_partition(df = train_refined,
+final_data <- f_partition(df = dataset,
                         test_proportion = 0.2,
                         seed = 123)
 ```
@@ -388,9 +447,8 @@ formula<-as.formula(price~.)
 tuneGrid=data.table(expand.grid(mtry=c(5,10),
                                 splitrule='variance',
                                 min.node.size=c(2,5,10)))
-
-fit <- train(
-    formula
+set.seed(123)
+fit <- train( formula
     ,data = final_data$train
     ,method = "ranger"
     ,trControl = trainControl(method="cv", number = 5, search ="grid", allowParallel = TRUE, verbose = TRUE)
@@ -401,12 +459,14 @@ fit <- train(
 rf_1<-ranger(formula, final_data$train, num.trees=1000,
                    mtry=fit$bestTune$mtry,
                    min.node.size=fit$bestTune$min.node.size)
-test_rf1<-predict(rf_1, final_data$test)$predictions
-mape(real=final_data$test$price, predicted = test_rf1)
+test_rf1<-as.numeric(exp(predict(rf_1, final_data$test)$predictions)-1)
+
+
+mape(real=as.numeric(exp(final_data$test$price)-1), predicted = test_rf1)
 
 ```
 
-The current MAPE is 0.13. This is a big improvement from the base model. This could be because the random forest pick up better all the non linearity pattern in the data. Also, dropping of outliers and feature creations show added value here. 
+The current MAPE is 0.1258. This is a big improvement from the base model. This could be because the random forest pick up better all the non linearity pattern in the data. Also, dropping of outliers, fix skewness and feature creations show added value here. 
 
 #### Variable Importance
 ```{r}
@@ -418,57 +478,18 @@ It seems like the yr_renovated, floors, bedrooms, and condition have very low im
 #### Plotting Prediction
 ```{r}
 df_pred<-data.table(id=1:length(test_rf1),
-                    real=final_data$test$price,
+                    real=as.numeric(exp(final_data$test$price)-1),
                     test_rf1)
 ggplot(df_pred,aes(x=test_rf1,y=real))+geom_point(color="#5ab4ac")+geom_abline(color="#e34a33") +scale_x_continuous(labels = scales::comma) +  scale_y_continuous(labels = scales::comma)
 ```
 
 ### XGBoost Model {.tabset .tabset-fade .tabset-pills}
 
-#### Setting Parameters Level & Cross Validate
-```{r}
-#Putting dataset in matrix format
-dtrain <- xgb.DMatrix(data = as.matrix(final_data$train[,-1]),label = final_data$train$price)
-dtest <- xgb.DMatrix(data = as.matrix(final_data$test[,-1]),label = final_data$test$price)
+#### Tuning XGBoost Model
 
-#Defining parameters
-params <- list(booster = "gbtree", objective = "reg:linear", eta=0.3, gamma=0, max_depth=6, min_child_weight=1, subsample=1, colsample_bytree=1)
-
-#Cross validate by 5 folds 
-xgbcv <- xgb.cv( params = params, data=dtrain, nrounds = 500, nfold = 5, showsd = T, stratified = T, print_every_n = 50, early_stopping_rounds = 20, maximize = F)
-
-#Find the best iteration
-xgbcv$best_iteration
-```
-
-#### RSquared
-```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
-
-xgb1 <- xgb.train (params = params, data = dtrain, nrounds = xgbcv$best_iteration, watchlist = list(val=dtest,train=dtrain), print.every.n = 10, early.stop.round = 10, maximize = F , eval_metric = "rmse")
-xgbpred <- predict (xgb1,dtest)
-mape(real=final_data$test$price, predicted = xgbpred)
-```
-#### Variable Importance 
-
-```{r}
-xgb.plot.importance(xgb.importance(model = xgb1))
-```
-
-#### Plotting Prediction
-```{r}
-xgb_pred<-data.table(id=1:length(test_xgb),
-                    real=final_data$test$price,
-                    test_xgb)
-ggplot(xgb_pred,aes(x=test_xgb,y=real))+geom_point(color="#5ab4ac")+geom_abline(color="#e34a33") +  scale_x_continuous(labels = scales::comma) +  scale_y_continuous(labels = scales::comma)
-```
-
-### Tuning XGBoost Model
-```{r}
-
-library(mlr)
+```{r message=FALSE, warning=FALSE}
 
 lrn <- makeLearner("regr.xgboost")
-
 #set parameter space
 params <- makeParamSet(
   makeIntegerParam("nrounds",lower=10,upper=20),
@@ -486,32 +507,56 @@ rdesc <- makeResampleDesc("CV",iters=5L)
 ctrl <- makeTuneControlRandom(maxit = 10L)
 
 #Set parallel backend
-library(parallel)
-library(parallelMap) 
-parallelStartSocket(cpus = detectCores())
+parallelStartSocket(8)
 
-traintask <- makeRegrTask(data = final_data$train, target = "price")
-testTask <- makeRegrTask(data = final_data$test, target = "price")
+traintask <- makeRegrTask(data = xgb_df$train, target = "price")
+testTask <- makeRegrTask(data = xgb_df$test, target = "price")
 
 #Define tuning functions
 mytune <- tuneParams(learner = lrn, task = traintask, resampling = rdesc, par.set = params, control = ctrl,show.info = FALSE)
-
 mytune
 ```
-#### Apply optimal parameters to model
-```{r}
-xgb_pars <- setHyperPars(learner = lrn,
-                        par.vals = mytune$x)
 
-xgb_tuned <- train(learner = lrn,task = traintask)
+#### Applying Parameters Level & Cross Validate
+
+```{r}
+#Putting dataset in matrix format
+dtrain <- xgb.DMatrix(data = as.matrix(xgb_df$train[,-1]),label = final_data$train$price)
+dtest <- xgb.DMatrix(data = as.matrix(xgb_df$test[,-1]),label = final_data$test$price)
+
+#Cross validate by 5 folds 
+xgbcv <- xgb.cv( params = mytune, data=dtrain, nrounds = 500, nfold = 5, showsd = T, stratified = T, print_every_n = 50, early_stopping_rounds = 20, maximize = F)
+
+#Find the best iteration
+xgbcv$best_iteration
 ```
 
-#### Apply Model on Test set
+#### MAPE
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
+
+xgb1 <- xgb.train (params = mytune, data = dtrain, nrounds = xgbcv$best_iteration , watchlist = list(val=dtest,train=dtrain), print.every.n = 50, early.stop.round = 10, maximize = F , eval_metric = "mae")
+xgbpred <- as.numeric(exp(predict(xgb1,dtest))-1)
+
+mape(real=as.numeric(exp(xgb_df$test$price)-1), predicted = xgbpred)
+```
+The MAPE result of the tuned XGBoost model is slightly less than the tuned Random Forrest. Thus we will use the tuned XGBoost to build our final model.
+
+#### Variable Importance 
+
 ```{r}
-xgbtuned_pred <- predict(xgb_tuned, testTask)
-mape(real=xgbtuned_pred$data$truth, predicted = xgbtuned_pred$data$response)
+xgb.plot.importance(xgb.importance(model = xgb1))
 ```
 
-The result of the tuned XGBoost model is slightly less than the tuned Random Forrest. Thus we will use the tuned XGBoost to build our final model. 
+We could see that bedrooms, bathrooms, yr_renovated and floors have low importance in this model. Thus we will experiment dropping these variables to see if our performance improve. I have attempted to build another model with these variables dropped, however the MAPE increase, thus, I will keep these variables. 
+
+#### Plotting Prediction
+
+```{r}
+xgb_table<-data.table(id=1:length(xgbpred),
+                    real=as.numeric(exp(final_data$test$price)-1),
+                    xgbpred)
+ggplot(xgb_table,aes(x=xgbpred,y=real))+geom_point(color="#5ab4ac")+geom_abline(color="#e34a33") +  scale_x_continuous(labels = scales::comma) +  scale_y_continuous(labels = scales::comma)
+```
+
 
 
