@@ -41,22 +41,100 @@ The following variables are included in the data:
 #### Downloading Packages 
 
 ```{r include=FALSE}
-library(knitr)
-library(ggplot2)
-library(plyr)
-library(dplyr)
-library(corrplot)
-library(RColorBrewer)
-library(caret)
-library(gridExtra)
-library(randomForest)
-library(ranger)
-library(xgboost)
+if(!"data.table" %in% installed.packages()) {
+  install.packages("data.table")
+} else {
+  print('data.table package already installed')}
 library(data.table)
+
+if(!"knitr" %in% installed.packages()) {
+  install.packages("knitr")
+} else {
+  print('knitr package already installed')}
+library(knitr)
+
+if(!"ggplot2" %in% installed.packages()) {
+  install.packages("ggplot2")
+} else {
+  print('ggplot2 package already installed')}
+library(ggplot2)
+
+if(!"plyr" %in% installed.packages()) {
+  install.packages("plyr")
+} else {
+  print('plyr package already installed')}
+library(plyr)
+
+if(!"dplyr" %in% installed.packages()) {
+  install.packages("dplyr")
+} else {
+  print('dplyr package already installed')}
+library(dplyr)
+
+if(!"corrplot" %in% installed.packages()) {
+  install.packages("corrplot")
+} else {
+  print('corrplot package already installed')}
+library(corrplot)
+
+if(!"RColorBrewer" %in% installed.packages()) {
+  install.packages("RColorBrewer")
+} else {
+  print('RColorBrewer package already installed')}
+library(RColorBrewer)
+
+if(!"caret" %in% installed.packages()) {
+  install.packages("caret")
+} else {
+  print('caret package already installed')}
+library(caret)
+
+if(!"gridExtra" %in% installed.packages()) {
+  install.packages("gridExtra")
+} else {
+  print('gridExtra package already installed')}
+library(gridExtra)
+
+if(!"ranger" %in% installed.packages()) {
+  install.packages("ranger")
+} else {
+  print('ranger package already installed')}
+library(ranger)
+
+if(!"xgboost" %in% installed.packages()) {
+  install.packages("xgboost")
+} else {
+  print('xgboost package already installed')}
+library(xgboost)
+
+if(!"leaflet" %in% installed.packages()) {
+  install.packages("leaflet")
+} else {
+  print('leaflet package already installed')}
 library(leaflet)
+
+if(!"DMwR" %in% installed.packages()) {
+  install.packages("DMwR")
+} else {
+  print('DMwR package already installed')}
 library(DMwR)
+
+if(!"mlr" %in% installed.packages()) {
+  install.packages("mlr")
+} else {
+  print('mlr package already installed')}
 library(mlr)
+
+if(!"parallel" %in% installed.packages()) {
+  install.packages("parallel")
+} else {
+  print('parallel package already installed')}
 library(parallel)
+
+if(!"parallelMap" %in% installed.packages()) {
+  install.packages("parallelMap")
+} else {
+  print('parallelMap package already installed')}
 library(parallelMap) 
 ```
 
@@ -595,11 +673,11 @@ The MAPE result of the tuned XGBoost model is 0.124, which is slightly less than
 
 ```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=TRUE}
 
-xgb1 <- xgb.train (params = mytune, data = dtrain, nrounds = xgbcv$best_iteration, watchlist = list(val=dtest,train=dtrain), print.every.n = 10, early.stop.round = 10, maximize = F , eval_metric = "mae")
+xgb1 <- xgb.train (params = mytune, data = dtrain, nrounds = 100, watchlist = list(val=dtest,train=dtrain), print.every.n = 10, early.stop.round = 10, maximize = F , eval_metric = "mae")
 xgbpred <- as.numeric(exp(predict(xgb1,dtest))-1)
 
-mape(real=as.numeric(exp(final_data$test$price)-1), predicted = xgbpred)
 ```
+
 ```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=TRUE}
 mape(real=as.numeric(exp(final_data$test$price)-1), predicted = xgbpred)
 ```
@@ -646,7 +724,7 @@ test$price <- NA
 train_df <- xgb.DMatrix(data = as.matrix(dataset[,-1]),label = dataset$price)
 test_df <- xgb.DMatrix(data = as.matrix(test[,-20]), label = test$price)
 
-xgb_final <- xgb.train(params = tune_final, data = train_df, nrounds = 100 , watchlist = list(val=test_df,train=train_df), print_every_n = 100, early_stopping_rounds = 10, maximize = F , eval_metric = "mae")
+xgb_final <- xgb.train(params = tune_final, data = train_df, nrounds = 154 , watchlist = list(val=test_df,train=train_df), print_every_n = 100, early_stopping_rounds = 10, maximize = F , eval_metric = "mae")
 
 final_prediction <- as.numeric(exp(predict(xgb_final,test_df))-1)
 #Add the final prediction to the id dataframe
